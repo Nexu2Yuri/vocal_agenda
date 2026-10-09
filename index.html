@@ -50,7 +50,7 @@ h2{font:600 15px/1.3 system-ui,sans-serif;color:var(--mute);margin:24px 0 8px}
     <strong>Vérifiez l'événement</strong>
     <label for="f-t">Titre</label><input id="f-t">
     <label for="f-d">Début</label><input id="f-d" type="datetime-local">
-    <label for="f-m">Durée (en heures, ex. 8 ou 1,5)</label><input id="f-m" type="number" min="0.25" step="0.25">
+    <label for="f-m">Durée (heures:minutes, ex. 1:30)</label><input id="f-m" type="text" inputmode="numeric" placeholder="1:00" autocomplete="off">
     <div class="row"><button class="btn main" id="save">Ajouter à l'agenda</button><button class="btn" id="cancel">Annuler</button></div>
   </section>
 
@@ -61,7 +61,10 @@ h2{font:600 15px/1.3 system-ui,sans-serif;color:var(--mute);margin:24px 0 8px}
 const $=id=>document.getElementById(id);
 const JOURS=['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
 const MOIS=['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
-const fmt=m=>m%60?`${m>=60?Math.floor(m/60)+' h ':''}${m%60} min`:`${m/60} h`;
+const fmt=m=>`${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`;
+const parseHM=v=>{v=String(v).trim().toLowerCase().replace(',','.');let m=v.match(/^(\d+)\s*[:h]\s*(\d{0,2})$/),r;
+  if(m)r=+m[1]*60+(+m[2]||0);else if(/^\d+(\.\d+)?$/.test(v))r=Math.round(parseFloat(v)*60);
+  return r>0?r:60};
 const p2=n=>String(n).padStart(2,'0');
 const toLocal=d=>`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
 
@@ -75,7 +78,11 @@ function parse(input){
   if(m=low.match(/apr[èe]s[- ]demain/)){d.setDate(d.getDate()+2);cut(/apr[èe]s[- ]demain/i);dateFound=true}
   else if(/\bdemain\b/.test(low)){d.setDate(d.getDate()+1);cut(/\bdemain\b/i);dateFound=true}
   else if(/aujourd'?hui|ce jour/.test(low)){cut(/aujourd'?hui|ce jour/i);dateFound=true}
-  else if(m=low.match(/dans (\d+) (jours?|semaines?)/)){d.setDate(d.getDate()+(+m[1])*(m[2][0]=='s'?7:1));cut(/dans \d+ (jours?|semaines?)/i);dateFound=true}
+  else if(m=low.match(/dans (\d+) (jours?|semaines?)/)){
+    const w=m[2][0]=='s';d.setDate(d.getDate()+(+m[1])*(w?7:1));cut(/dans \d+ (jours?|semaines?)/i);dateFound=true;
+    if(w&&(m=low.match(new RegExp('\\b('+JOURS.join('|')+')\\b')))){
+      d.setDate(d.getDate()+(((JOURS.indexOf(m[1])+6)%7)-((d.getDay()+6)%7)));
+      cut(new RegExp('\\b(ce |le )?('+JOURS.join('|')+')( prochain)?','i'))}}
   else if(m=low.match(new RegExp('\\b(?:le )?(\\d{1,2})(?:er)? ('+MOIS.join('|')+')(?: (\\d{4}))?'))){
     d.setMonth(MOIS.indexOf(m[2]),+m[1]);
     if(m[3])d.setFullYear(+m[3]); else if(d<new Date(now.getFullYear(),now.getMonth(),now.getDate()))d.setFullYear(d.getFullYear()+1);
@@ -93,7 +100,8 @@ function parse(input){
     /(?:pendant|dur[ée]e de|durant)\s*(\d+)\s*(heures?\b|h(?![a-zéè]))(?:\s*(?:et\s*)?(\d{2}))?/,
     /\bde\s*(\d+)\s*(heures?\b|h(?![a-zéè]))(?:\s*(?:et\s*)?(\d{2}))?(?!\s*\d)(?!\s*(?:à|a|-|jusqu'à)\s*\d{1,2}\s*(?:heures?\b|h(?![a-zéè])|:))/,
     /(?:(?:pendant|dur[ée]e de|durant|de)\s*)?(\d+)\s*(minutes?|min)\b/];
-  for(const re of durRes){
+  if(m=low.match(/\(\s*(\d+)\s*(?:h|:)\s*(\d{0,2})\s*\)/)){dur=+m[1]*60+(+m[2]||0);cutStr(m[0])}
+  else for(const re of durRes){
     if(m=low.match(re)){dur=/^h/.test(m[2])?+m[1]*60+(+m[3]||0):+m[1];cutStr(m[0]);break}
   }
   let h=9,min=0,timeFound=false,range=null;
@@ -116,7 +124,7 @@ function parse(input){
 
   d.setHours(h,min,0,0);
 
-  let title=s.replace(/\s+/g,' ').trim()
+  let title=s.replace(/\(\s*\)/g,' ').replace(/\s+/g,' ').trim()
     .replace(/^(ajoute|ajouter|cr[ée]e|cr[ée]er|mets?|note|rappelle[- ]moi( de)?)\s+/i,'')
     .replace(/^(un|une|l')\s*(événement|evenement|rendez-vous|rdv)\s*(avec|chez|pour|:)?\s*/i,'')
     .replace(/^(à|le|de|pour|:|,)\s+/i,'').replace(/\s+(à|le|de|pour|,)$/i,'').trim();
@@ -149,7 +157,7 @@ function render(){
 
 /* ---------- Confirmation ---------- */
 function showConfirm(r){
-  $('f-t').value=r.title;$('f-d').value=toLocal(r.start);$('f-m').value=r.dur/60;
+  $('f-t').value=r.title;$('f-d').value=toLocal(r.start);$('f-m').value=fmt(r.dur);
   $('conf').style.display='block';
   const miss=[];if(!r.dateFound)miss.push('la date');if(!r.timeFound)miss.push("l'heure");
   $('hint').textContent=miss.length?`Je n'ai pas trouvé ${miss.join(' ni ')} : vérifiez-${miss.length>1?'les':'la'} ci-dessous.`:'Vérifiez puis enregistrez.';
@@ -160,7 +168,7 @@ $('txt').onkeydown=e=>{if(e.key==='Enter')$('go').click()};
 $('cancel').onclick=()=>{$('conf').style.display='none';$('hint').textContent='Annulé.'};
 $('save').onclick=()=>{
   if(!$('f-d').value)return;
-  events.push({id:Date.now(),title:$('f-t').value||'Événement',start:$('f-d').value,dur:Math.round((+$('f-m').value||1)*60)});
+  events.push({id:Date.now(),title:$('f-t').value||'Événement',start:$('f-d').value,dur:parseHM($('f-m').value)});
   persist();render();$('conf').style.display='none';$('txt').value='';$('hint').textContent='Événement ajouté.';
 };
 
